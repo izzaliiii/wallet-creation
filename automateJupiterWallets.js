@@ -1,3 +1,32 @@
+/* ---------------------------------------------------------------------------
+ * BROWSER-ONLY SCRIPT — do NOT run this with Node / VS Code's Run button.
+ *
+ * It drives the real wallet page through the DOM, so it needs window, document
+ * and prompt(), which Node.js does not have. In a browser this guard is a
+ * no-op; under Node it prints instructions instead of:
+ *     ReferenceError: prompt is not defined
+ * ------------------------------------------------------------------------- */
+if (typeof window === 'undefined' || typeof document === 'undefined') {
+  console.error([
+    '',
+    '  Jupiter wallet script — this is BROWSER code, not Node code.',
+    '',
+    '  Node has no window / document / prompt, so VS Code\'s Run button cannot',
+    '  execute it. Run it inside Chrome/Edge DevTools on the wallet page:',
+    '',
+    '    1. Open the Jupiter wallet page in Chrome/Edge and log in.',
+    '    2. Press F12  ->  Console tab.',
+    '    3. First time only: type   allow pasting   and press Enter.',
+    '    4. Open this file in VS Code: Ctrl+A, Ctrl+C.',
+    '    5. Click into the Console: Ctrl+V, then Enter.',
+    '',
+    '  Faster: Ctrl+Shift+B -> "Jupiter: copy console script to clipboard".',
+    '  Or run the browser test instead:  npm test',
+    '',
+  ].join('\n'));
+  if (typeof process !== 'undefined' && typeof process.exit === 'function') process.exit(0);
+}
+
 async function automateJupiterWallets() {
   const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 

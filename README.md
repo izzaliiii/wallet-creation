@@ -17,6 +17,12 @@ rewrite that is slower to break and has a real headless-browser test.
 > **The scripts are browser code** (`document`, `prompt()`, `HTMLInputElement`). They
 > cannot run in a Node/VS Code terminal — they run inside Chrome's DevTools Console on
 > the wallet tab. VS Code is the editor / launcher here.
+>
+> **Do not click VS Code's ▷ Run button on these files.** That executes them with Node,
+> which has no `window`/`document`/`prompt`, so you get
+> `ReferenceError: prompt is not defined` (or `document is not defined`). Both files now
+> print a how-to message instead of crashing when that happens — then run them in the
+> browser as described below.
 
 ---
 
@@ -156,7 +162,7 @@ slow app → raise the delays.
 
 | Symptom | Fix |
 |---|---|
-| `document is not defined` | You ran it in Node/VS Code terminal. Use the browser DevTools Console. |
+| `prompt is not defined` / `document is not defined` | You clicked Run in VS Code (Node). These files only run in the browser DevTools Console — see Quick start. |
 | Nothing happens after Enter | Paste was blocked by DevTools; type `allow pasting` and retry, or use Snippets. |
 | `"Create a new wallet" button not found` | Wrong page, logged out, or a modal is open. Go back to the wallet list and rerun `startIndex`. |
 | Prompt never shows | Set `baseName` and `seedMode` (and `seedPhrase`) in the config instead. |
@@ -184,7 +190,9 @@ Status: **all 3 scenarios pass** (Chrome 156, headless).
 
 ## Original script (`automateJupiterWallets.js`)
 
-The first version, kept unchanged for reference.
+The first version, kept functionally unchanged for reference. Only a browser-only guard
+was added, so a mistaken Node/VS-Code run prints instructions instead of
+`ReferenceError: prompt is not defined`.
 
 ### What it does
 
