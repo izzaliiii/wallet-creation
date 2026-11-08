@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Mock Jupiter Wallet — automation test fixture</title>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: system-ui, sans-serif; margin: 0; display: flex; min-height: 100vh; }
+  aside { width: 280px; padding: 16px; border-right: 1px solid #e2e8f0; }
+  main { flex: 1; padding: 24px; }
+  ul#wallets { list-style: none; padding: 0; margin: 12px 0; }
+  ul#wallets li { padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 6px; }
+  button { padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer; display: block; width: 100%; margin: 6px 0; text-align: left; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  input, textarea { width: 100%; box-sizing: border-box; padding: 8px; margin: 6px 0; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; }
+  #backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: none; align-items: center; justify-content: center; }
+  #backdrop.open { display: flex; }
+  #dialog { background: #fff; border-radius: 14px; padding: 20px; width: 420px; max-width: 92vw; }
+  .seed-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
+  .word-chip { background: #f1f5f9; border-radius: 6px; padding: 6px; text-align: center; font-size: 13px; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #0f172a; color: #fff; padding: 10px 16px; border-radius: 999px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<aside>
+  <h2>Wallets</h2>
+  <input id="search" type="search" placeholder="Search wallets" />
+  <ul id="wallets"></ul>
+  <button id="createBtn">+ Create a new wallet</button>
+  <button id="decoyBtn">Create new wallet group</button>
+</aside>
+<main>
+  <h1>Portfolio</h1>
+  <p>Nothing here yet. The next step is to add a wallet.</p>
+</main>
+<div id="backdrop"><div id="dialog" role="dialog" aria-modal="true" aria-label="Create wallet"></div></div>
+
+<script>
+(function mockJupiter() {
+  'use strict';
+
+  var GENERATED = ['apple', 'brave', 'crisp', 'delta', 'eagle', 'frost',
+                   'grape', 'humble', 'ivory', 'jolly', 'kite', 'lemon'];
+
+  var test = {
+    generatedSeed: GENERATED.join(' '),
+    created: [],
+    importedSeeds: [],
+    decoyClicks: 0,
+    searchTouched: false,
+  };
+  window.__test = test;
+
+  var backdrop = document.getElementById('backdrop');
+  var dialog = document.getElementById('dialog');
+  var walletList = document.getElementById('wallets');
+
+  document.getElementById('decoyBtn').addEventListener('click', function () {
+    test.decoyClicks += 1;
+  });
+  document.getElementById('search').addEventListener('input', function () {
+    test.searchTouched = true;
+  });
+
+  function el(tag, props, text) {
+    var node = document.createElement(tag);
+    if (props) Object.assign(node, props);
+    if (text) node.textContent = text;
+    return node;
+  }
+
+  function openDialog() { backdrop.classList.add('open'); }
+
+  function closeDialog() {
+    backdrop.classList.remove('open');
+    dialog.innerHTML = '';
+  }
+
+  function toast(message) {
+    var node = el('div', { className: 'toast' }, message);
+    document.body.appendChild(node);
+    setTimeout(function () { node.remove(); }, 2000);
+  }
+
+  /* screen 1: choose seed type ------------------------------------------- */
+  function screenSeedType() {
+    dialog.innerHTML = '';
+    dialog.appendChild(el('h3', null, 'Create a new wallet'));
+    dialog.appendChild(el('p', null, 'Choose how you want to start.'));
+
+    var newBtn = el('button', null, 'New Seed Phrase');
+    newBtn.addEventListener('click', screenNewSeed);
+
+    var existBtn = el('button', null, 'Existing Seed Phrase');
+    existBtn.addEventListener('click', screenExistingSeed);
+
+    dialog.appendChild(newBtn);
+    dialog.appendChild(existBtn);
+  }
+
+  /* screen 2a: brand new seed phrase ------------------------------------ */
+  function screenNewSeed() {
+    dialog.innerHTML = '';
+    dialog.appendChild(el('h3', null, 'Save your recovery phrase'));
+    dialog.appendChild(el('p', null, 'Write these 12 words down in order.'));
+
+    var grid = el('div', { className: 'seed-grid hidden' });
+    grid.setAttribute('data-testid', 'seed-grid');
+    GENERATED.forEach(function (word) {
+      grid.appendChild(el('span', { className: 'word-chip' }, word));
+    });
+
+    var revealBtn = el('button', null, 'Reveal Seed Phrase');
+    revealBtn.addEventListener('click', function () { grid.classList.remove('hidden'); });
+
+    var checkbox = el('input', { type: 'checkbox', id: 'saved' });
+    checkbox.name = 'saved';
+    var checkLabel = el('label', { htmlFor: 'saved' }, 'I have saved my seed phrase');
+
+    var continueBtn = el('button', null, 'Continue');
+    continueBtn.disabled = true;
+    checkbox.addEventListener('change', function () {
+      continueBtn.disabled = !checkbox.checked;
+    });
+    continueBtn.addEventListener('click', function () { screenName(); });
+
+    dialog.appendChild(revealBtn);
+    dialog.appendChild(grid);
+    dialog.appendChild(checkLabel);
+    dialog.appendChild(checkbox);
+    dialog.appendChild(continueBtn);
+  }
+
+  /* screen 2b: import an existing seed phrase --------------------------- */
+  function screenExistingSeed() {
+    dialog.innerHTML = '';
+    dialog.appendChild(el('h3', null, 'Import an existing wallet'));
+
+    var textarea = el('textarea', { placeholder: 'Enter your 12 or 24-word recovery phrase' });
+    textarea.name = 'seed-phrase-input';
+
+    var importBtn = el('button', null, 'Import Wallet');
+    importBtn.disabled = true;
+
+    textarea.addEventListener('input', function () {
+      var words = textarea.value.trim().split(/\s+/).filter(Boolean);
+      importBtn.disabled = words.length < 12;
+    });
+
+    importBtn.addEventListener('click', function () {
+      test.importedSeeds.push(textarea.value.trim());
+      screenName();
+    });
+
+    dialog.appendChild(textarea);
+    dialog.appendChild(importBtn);
+  }
+
+  /* screen 3: name the wallet ------------------------------------------- */
+  function screenName() {
+    dialog.innerHTML = '';
+    dialog.appendChild(el('h3', null, 'Name your wallet'));
+
+    var nameInput = el('input', { type: 'text', value: 'My Wallet' });
+    nameInput.name = 'wallet-name-input';
+    nameInput.placeholder = 'e.g. Trading Wallet';
+
+    var nextBtn = el('button', null, 'Next');
+    nextBtn.disabled = !nameInput.value.trim();
+
+    nameInput.addEventListener('input', function () {
+      nextBtn.disabled = !nameInput.value.trim();
+    });
+
+    nextBtn.addEventListener('click', function () {
+      var name = nameInput.value.trim();
+      test.created.push(name);
+
+      var li = document.createElement('li');
+      var span = document.createElement('span');
+      span.textContent = name;
+      li.appendChild(span);
+      walletList.appendChild(li);
+
+      closeDialog();
+      toast('Wallet created');
+    });
+
+    dialog.appendChild(nameInput);
+    dialog.appendChild(nextBtn);
+  }
+
+  document.getElementById('createBtn').addEventListener('click', function () {
+    openDialog();
+    screenSeedType();
+  });
+})();
+</script>
+</body>
+</html>

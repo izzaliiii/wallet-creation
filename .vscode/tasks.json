@@ -1,0 +1,34 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Jupiter: copy console script to clipboard",
+      "detail": "Copies jupiter-wallets.console.js, then paste it into the browser DevTools Console",
+      "type": "shell",
+      "command": "Get-Content -Raw '${workspaceFolder}/jupiter-wallets.console.js' | Set-Clipboard",
+      "windows": {
+        "command": "powershell -NoProfile -Command \"Get-Content -Raw '${workspaceFolder}/jupiter-wallets.console.js' | Set-Clipboard\""
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Jupiter: run browser smoke test",
+      "detail": "Runs the console script against test/mock-wallet.html in headless Chrome",
+      "type": "shell",
+      "command": "node test/run-test.mjs",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}
