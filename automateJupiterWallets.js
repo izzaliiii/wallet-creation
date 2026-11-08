@@ -25,22 +25,6 @@ async function automateJupiterWallets() {
     return null;
   }
 
-  // Helper to click the Back arrow (←) if needed
-  async function clickBack() {
-    const elements = Array.from(document.querySelectorAll('button, div, span'));
-    const backBtn = elements.find(el => {
-      const text = el.innerText || el.textContent || '';
-      return text.includes('←') || el.querySelector('svg');
-    });
-    if (backBtn) {
-      backBtn.click();
-      await sleep(1000);
-      console.log('Back button clicked!');
-      return true;
-    }
-    return false;
-  }
-
   // React-compatible input setter
   function setInputValue(input, value) {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
@@ -114,7 +98,7 @@ async function automateJupiterWallets() {
       await sleep(1500);
     }
 
-    // Step 3: Enter Wallet Name
+    // Step 3: Enter Wallet Name (Updated with exact input selector/placeholder)
     let nameInput = null;
     for (let attempt = 0; attempt < 10; attempt++) {
       nameInput = document.querySelector('input[name="wallet-name-input"]') || 
