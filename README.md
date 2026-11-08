@@ -3,40 +3,92 @@
 Browser-console automation for bulk-creating wallets in the Jupiter (Solana DEX) web UI.
 
 This repo contains **two** versions of the script — the original one, and a hardened
-rewrite that is slower to break and has a real headless-browser test.
+rewrite that is slower to break and has a real headless-browser test. It also has a
+**VS Code launcher** so you don't have to copy-paste anything.
 
 | File | What it is |
 |---|---|
-| [`jupiter-wallets.console.js`](jupiter-wallets.console.js) | **Recommended.** Hardened script: modal-aware clicking, React-safe inputs, seed capture/reuse, per-wallet unique seeds, resume/stop, retries. |
+| [`run-wallet-creation.js`](run-wallet-creation.js) | **Run this from VS Code.** Opens Chrome, waits for the wallet screen, injects the automation, streams its logs into the terminal. |
+| [`jupiter-wallets.console.js`](jupiter-wallets.console.js) | The automation itself (also pasteable into DevTools by hand). |
 | [`automateJupiterWallets.js`](automateJupiterWallets.js) | The original v1 script, kept for reference. |
-| [`.vscode/tasks.json`](.vscode/tasks.json) | `Ctrl+Shift+B` → copy script to clipboard / run the test. |
+| [`.vscode/tasks.json`](.vscode/tasks.json) | `Ctrl+Shift+B` → run in browser, copy script, run the test. |
 | [`test/mock-wallet.html`](test/mock-wallet.html) | Fake Jupiter flow used by the automated test. |
 | [`test/run-test.mjs`](test/run-test.mjs) | Runs the real script against the mock page in headless Chrome. |
-| [`package.json`](package.json) | `npm test` shortcut for the test. |
+| [`package.json`](package.json) | `npm start` (launcher) and `npm test` (browser test). |
 
-> **The scripts are browser code** (`document`, `prompt()`, `HTMLInputElement`). They
-> cannot run in a Node/VS Code terminal — they run inside Chrome's DevTools Console on
-> the wallet tab. VS Code is the editor / launcher here.
->
-> **Do not click VS Code's ▷ Run button on these files.** That executes them with Node,
-> which has no `window`/`document`/`prompt`, so you get
-> `ReferenceError: prompt is not defined` (or `document is not defined`). Both files now
-> print a how-to message instead of crashing when that happens — then run them in the
-> browser as described below.
+> **The automation script itself is browser code** (`document`, `prompt()`,
+> `HTMLInputElement`). Do not click VS Code's ▷ Run button **on
+> `jupiter-wallets.console.js` / `automateJupiterWallets.js`** — that executes them with
+> Node and you get `ReferenceError: prompt is not defined`. Those two files now print
+> instructions instead of crashing. To run from VS Code, run the launcher below.
+
+---
+
+## Run it from VS Code (recommended)
+
+No copy-paste. A Node launcher opens Chrome, waits until you are on the wallet screen,
+injects the automation into the page, and mirrors all progress into the VS Code terminal.
+
+1. Open **this folder** in VS Code.
+2. Press `Ctrl+Shift+B` → **`Jupiter: run in browser (VS Code)`**
+   (or run `npm start`, or `node run-wallet-creation.js` in the terminal).
+3. Answer the five questions in the terminal (press Enter for the displayed default):
+   page URL, base name, how many, start number, seed mode.
+4. A Chrome window opens with a **dedicated profile** (`.chrome-profile/`, gitignored).
+   The first time, log in to the wallet site in that window — the login is remembered,
+   so later runs go straight in.
+5. Go to the wallet screen with **“Create a new wallet”**. The launcher detects it and
+   starts automatically; you will see the same log lines you would see in DevTools.
+6. At the end it prints a summary. **Back up the seed phrase in the browser window**,
+   then close that window yourself (it is running with a local DevTools port).
+
+### Non-interactive use (flags instead of questions)
+
+```powershell
+node run-wallet-creation.js --url=https://jup.ag --base=XT --total=100
+node run-wallet-creation.js --mode=existing --phrase="word1 word2 ... word12"
+node run-wallet-creation.js --mode=new-each      # own seed phrase per wallet
+node run-wallet-creation.js --start=47           # resume after a break
+node run-wallet-creation.js --yes                # accept all defaults
+node run-wallet-creation.js --headless --close   # unattended, closes the browser
+```
+
+| Flag | Meaning |
+|---|---|
+| `--url=` | wallet page to open (also `JUP_WALLET_URL`) |
+| `--base=` | wallet name prefix: `XT` → `XT01`, `XT02` … |
+| `--total=` / `--start=` | how many wallets / resume from number |
+| `--mode=new\|existing\|new-each` | seed handling (see the seed table below) |
+| `--phrase=` | your 12/24-word phrase for `--mode=existing` |
+| `--yes` | never ask questions |
+| `--headless` / `--close` | run hidden / close the browser when finished |
+| `--port=` | DevTools port, default `9222` |
+| `--ready-hint=` | extra text that means "the wallet screen is ready" |
+
+Notes:
+
+- Needs **Node 20+** and **Chrome or Edge** (set `CHROME_PATH` if yours is elsewhere).
+- The `.chrome-profile/` folder holds your wallet-site login — treat it like a password,
+  and don't commit it (it is already in `.gitignore`).
+- VS Code's ▷ Run button / Code Runner has no terminal input, so it silently uses the
+  defaults (that still works: it opens the browser and waits). Use `Ctrl+Shift+B` or the
+  integrated terminal when you want the questions.
+- If it never detects the wallet screen, check the URL and add `--ready-hint=<button text>`.
 
 ---
 
 ## Hardened version (`jupiter-wallets.console.js`)
 
-### Quick start
+### Quick start (copy-paste into DevTools, if you prefer no launcher)
 
 1. Open the Jupiter wallet page in Chrome/Edge, log in, and stay on the screen where
    **“Create a new wallet”** is visible.
 2. Open DevTools (`F12`) → **Console** tab.
 3. First time only: if you see *“Warning: Don't paste code into the DevTools Console…”*,
    type `allow pasting` and press Enter.
-4. In VS Code run the task **`Jupiter: copy console script to clipboard`**
-   (`Ctrl+Shift+B`), click into the DevTools Console, press `Ctrl+V`, then Enter.
+4. In VS Code: `Ctrl+Shift+P` → **Tasks: Run Task** → **`Jupiter: copy console script to
+   clipboard`**, then click into the DevTools Console, press `Ctrl+V`, then Enter.
+   (Pasting the file contents manually works too.)
 
 ### Better: DevTools Snippets (persistent, no re-pasting)
 
@@ -162,7 +214,10 @@ slow app → raise the delays.
 
 | Symptom | Fix |
 |---|---|
-| `prompt is not defined` / `document is not defined` | You clicked Run in VS Code (Node). These files only run in the browser DevTools Console — see Quick start. |
+| `prompt is not defined` / `document is not defined` | You clicked Run on `jupiter-wallets.console.js` / `automateJupiterWallets.js` (browser-only files). Run the launcher instead: `node run-wallet-creation.js` or `Ctrl+Shift+B`. |
+| Launcher: “did not expose its DevTools port” | Close every Chrome/Edge window (including other profiles) and retry, or pass `--port=9223`. |
+| Launcher: “wallet screen never appeared” | Wrong `--url`, not logged in, or different button wording — add `--ready-hint="<text on that screen>"`. |
+| Launcher shows no questions (Code Runner) | The ▷ Run button has no terminal input; use the integrated terminal (`Ctrl+`` ``) or `Ctrl+Shift+B`. |
 | Nothing happens after Enter | Paste was blocked by DevTools; type `allow pasting` and retry, or use Snippets. |
 | `"Create a new wallet" button not found` | Wrong page, logged out, or a modal is open. Go back to the wallet list and rerun `startIndex`. |
 | Prompt never shows | Set `baseName` and `seedMode` (and `seedPhrase`) in the config instead. |

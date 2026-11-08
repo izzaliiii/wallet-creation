@@ -5,6 +5,7 @@
   "type": "module",
   "description": "DevTools console script that batch-creates Jupiter wallets, plus a headless-Chrome smoke test",
   "scripts": {
+    "start": "node run-wallet-creation.js",
     "test": "node test/run-test.mjs"
   }
 }

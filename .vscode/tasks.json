@@ -2,6 +2,25 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Jupiter: run in browser (VS Code)",
+      "detail": "Opens Chrome, waits for the wallet screen, then runs the automation and streams its logs here",
+      "type": "shell",
+      "command": "node run-wallet-creation.js",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": true
+      }
+    },
+    {
       "label": "Jupiter: copy console script to clipboard",
       "detail": "Copies jupiter-wallets.console.js, then paste it into the browser DevTools Console",
       "type": "shell",

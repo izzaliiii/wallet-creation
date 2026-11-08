@@ -1,6 +1,9 @@
 # dependencies (the project has none; the test uses Node's built-ins)
 node_modules/
 
+# Chrome profile used by run-wallet-creation.js (contains your wallet-site login)
+.chrome-profile/
+
 # logs / temp
 *.log
 .DS_Store
