@@ -55,7 +55,7 @@ const cli = parseArgs(process.argv.slice(2));
 const localCfg = readJsonFile(join(HERE, 'wallet.local.json')) || {};
 
 const cfg = {
-  url: cli.url || process.env.JUP_WALLET_URL || localCfg.url || 'https://jup.ag',
+  url: cli.url || process.env.JUP_WALLET_URL || localCfg.url || 'chrome-extension://iledlaeogohbilgbfhmbgkgmpplbfboh/popup.html#/onboard',
   baseName: cli.base || process.env.JUP_BASE_NAME || localCfg.baseName || 'XT',
   total: toInt(cli.total ?? process.env.JUP_TOTAL ?? localCfg.total, 100),
   startIndex: toInt(cli.start ?? process.env.JUP_START_INDEX ?? localCfg.startIndex, 1),
@@ -242,7 +242,7 @@ async function askQuestions() {
 }
 
 function validate() {
-  if (!cfg.url || !/^https?:\/\/|^file:\/\//i.test(cfg.url)) {
+  if (!cfg.url || !/^(https?:\/\/|file:\/\/|chrome-extension:\/\/)[^\s]+$/i.test(cfg.url)) {
     fail('Wallet page URL looks wrong: "' + cfg.url + '"');
   }
   if (cfg.total < cfg.startIndex) {
@@ -556,6 +556,11 @@ async function listTargets() {
 function targetsUrl(target) {
   try {
     const url = new URL(cfg.url);
+    // chrome-extension URLs have a browser-specific origin; match the exact
+    // extension ID rather than relying on URL.origin.
+    if (url.protocol === 'chrome-extension:') {
+      return target.url.startsWith('chrome-extension://' + url.host + '/');
+    }
     if (url.protocol === 'file:') return target.url.startsWith('file:');
     return target.url.startsWith(url.origin);
   } catch {
