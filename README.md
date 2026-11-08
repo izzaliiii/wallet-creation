@@ -34,13 +34,33 @@ injects the automation into the page, and mirrors all progress into the VS Code 
    (or run `npm start`, or `node run-wallet-creation.js` in the terminal).
 3. Answer the five questions in the terminal (press Enter for the displayed default):
    page URL, base name, how many, start number, seed mode.
-4. A Chrome window opens with a **dedicated profile** (`.chrome-profile/`, gitignored).
-   The first time, log in to the wallet site in that window — the login is remembered,
-   so later runs go straight in.
+4. The launcher uses **your own Chrome profile** — same logins, extensions, bookmarks and
+   history. Chrome is closed once at startup and reopened with a debugging port
+   (Chrome restores your tabs). Nobody has to log in again.
 5. Go to the wallet screen with **“Create a new wallet”**. The launcher detects it and
    starts automatically; you will see the same log lines you would see in DevTools.
 6. At the end it prints a summary. **Back up the seed phrase in the browser window**,
-   then close that window yourself (it is running with a local DevTools port).
+   then close that window yourself — the debugging port disappears with it.
+
+### Which profile is used
+
+| How | Result |
+|---|---|
+| `wallet.local.json` (gitignored) | `{ "browser": "chrome", "profile": "Profile 14" }` — set once per machine |
+| `--profile="Profile 14"` | a folder name |
+| `--profile=Syed` | resolved from the profile's display name / signed-in email |
+| `--profile=auto` (default) | your Chrome's last-used profile |
+| `--profile=fresh` | the old separate `.chrome-profile/` (log in once there) |
+
+The launcher prints the profile it picked, e.g.
+`Profile: Profile 14 — Syed · you@example.com`, before it starts. If the name does not
+match, it lists every available profile.
+
+> **Chrome is closed once per run.** A browser only accepts a debugging port when it
+> starts, so the launcher closes it (tabs restore on reopen) and starts it again. Use
+> `--no-close-chrome` to be asked instead of closed automatically, or `--profile=fresh`
+> to never touch your real browsing profile.
+
 
 ### Non-interactive use (flags instead of questions)
 
@@ -62,14 +82,20 @@ node run-wallet-creation.js --headless --close   # unattended, closes the browse
 | `--phrase=` | your 12/24-word phrase for `--mode=existing` |
 | `--yes` | never ask questions |
 | `--headless` / `--close` | run hidden / close the browser when finished |
+| `--profile=` | your real browser profile (folder name, display name or email), `auto`, or `fresh` |
+| `--browser=chrome\|edge\|auto` | which browser to drive (default: Chrome, else Edge) |
+| `--user-data=` | advanced: a different browser user-data folder |
+| `--no-close-chrome` | ask before closing a running browser instead of just doing it |
 | `--port=` | DevTools port, default `9222` |
 | `--ready-hint=` | extra text that means "the wallet screen is ready" |
 
 Notes:
 
 - Needs **Node 20+** and **Chrome or Edge** (set `CHROME_PATH` if yours is elsewhere).
-- The `.chrome-profile/` folder holds your wallet-site login — treat it like a password,
-  and don't commit it (it is already in `.gitignore`).
+- With a real profile the browser window runs with a **local debugging port** — close it
+  when the run is finished; it reopens normally next time.
+- `wallet.local.json` (your profile choice) and `.chrome-profile/` are gitignored — keep
+  them out of the repo, they identify/authenticate your browser.
 - VS Code's ▷ Run button / Code Runner has no terminal input, so it silently uses the
   defaults (that still works: it opens the browser and waits). Use `Ctrl+Shift+B` or the
   integrated terminal when you want the questions.
@@ -215,7 +241,9 @@ slow app → raise the delays.
 | Symptom | Fix |
 |---|---|
 | `prompt is not defined` / `document is not defined` | You clicked Run on `jupiter-wallets.console.js` / `automateJupiterWallets.js` (browser-only files). Run the launcher instead: `node run-wallet-creation.js` or `Ctrl+Shift+B`. |
-| Launcher: “did not expose its DevTools port” | Close every Chrome/Edge window (including other profiles) and retry, or pass `--port=9223`. |
+| Launcher: “did not expose its DevTools port” | Close every Chrome/Edge window (including background apps) and retry, or pass `--port=9223`. |
+| Launcher closes my Chrome every run | Expected: a debugging port can only be enabled when the browser starts. Use `--profile=fresh`, or `--no-close-chrome` to be prompted instead. |
+| Launcher: “No browser profile matches …” | It prints the available profiles; pass `--profile="Profile 14"` (folder name) or `--profile=Syed` (display name). |
 | Launcher: “wallet screen never appeared” | Wrong `--url`, not logged in, or different button wording — add `--ready-hint="<text on that screen>"`. |
 | Launcher shows no questions (Code Runner) | The ▷ Run button has no terminal input; use the integrated terminal (`Ctrl+`` ``) or `Ctrl+Shift+B`. |
 | Nothing happens after Enter | Paste was blocked by DevTools; type `allow pasting` and retry, or use Snippets. |

@@ -4,6 +4,9 @@ node_modules/
 # Chrome profile used by run-wallet-creation.js (contains your wallet-site login)
 .chrome-profile/
 
+# per-machine browser/profile choice for run-wallet-creation.js
+wallet.local.json
+
 # logs / temp
 *.log
 .DS_Store

@@ -4,12 +4,19 @@
  * ---------------------------------------------------------------------------
  * You no longer need to copy-paste the script into DevTools. This launcher:
  *
- *   1. opens Chrome/Edge with a dedicated profile (.chrome-profile/, gitignored)
+ *   1. uses YOUR OWN Chrome profile (so you are already logged in and your
+ *      extensions, bookmarks and history are there), opens it with a
+ *      debugging port, and closes it first if it is already running
  *   2. asks for the wallet name / count / seed mode in THIS terminal
  *   3. waits until you are on the wallet screen (it detects the buttons)
  *   4. injects jupiter-wallets.console.js into the page over the DevTools
  *      Protocol and mirrors its console output back into the terminal
- *   5. prints a summary and leaves the browser open so you can back up seeds
+ *   5. prints a summary and leaves your browser open so you can back up seeds
+ *
+ * Which profile is used:
+ *   - wallet.local.json (gitignored)  ->  { "browser": "chrome", "profile": "Profile 14" }
+ *   - or --profile="Profile 14" / --profile=Syed / --profile=auto (last used)
+ *   - --profile=fresh uses the separate .chrome-profile/ instead (old behaviour)
  *
  * Usage (from VS Code: Ctrl+Shift+B, or `npm start`):
  *
@@ -19,6 +26,8 @@
  *   node run-wallet-creation.js --mode=existing --phrase="word1 word2 ..."
  *   node run-wallet-creation.js --mode=new-each        # own seed per wallet
  *   node run-wallet-creation.js --yes                  # no questions, defaults
+ *   node run-wallet-creation.js --profile="Profile 14" # pick the Chrome profile
+ *   node run-wallet-creation.js --profile=fresh        # separate profile
  *   node run-wallet-creation.js --headless --close     # for automated runs
  *
  * Everything is optional — press Enter to accept each default.
@@ -39,20 +48,37 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const cli = parseArgs(process.argv.slice(2));
 
+/* Optional per-machine settings, gitignored, so each PC can remember its own
+ * browser/profile without hardcoding it in the repo:
+ *     { "browser": "chrome", "profile": "Profile 14" }
+ */
+const localCfg = readJsonFile(join(HERE, 'wallet.local.json')) || {};
+
 const cfg = {
-  url: cli.url || process.env.JUP_WALLET_URL || 'https://jup.ag',
-  baseName: cli.base || process.env.JUP_BASE_NAME || 'XT',
-  total: toInt(cli.total ?? process.env.JUP_TOTAL, 100),
-  startIndex: toInt(cli.start ?? process.env.JUP_START_INDEX, 1),
-  seedMode: normalizeMode(cli.mode || process.env.JUP_SEED_MODE || 'new'),
-  seedPhrase: cli.phrase || process.env.JUP_SEED_PHRASE || '',
+  url: cli.url || process.env.JUP_WALLET_URL || localCfg.url || 'https://jup.ag',
+  baseName: cli.base || process.env.JUP_BASE_NAME || localCfg.baseName || 'XT',
+  total: toInt(cli.total ?? process.env.JUP_TOTAL ?? localCfg.total, 100),
+  startIndex: toInt(cli.start ?? process.env.JUP_START_INDEX ?? localCfg.startIndex, 1),
+  seedMode: normalizeMode(cli.mode || process.env.JUP_SEED_MODE || localCfg.seedMode || 'new'),
+  seedPhrase: cli.phrase || process.env.JUP_SEED_PHRASE || localCfg.seedPhrase || '',
   port: toInt(cli.port, 9222),
   headless: truthy(cli.headless) || process.env.JUP_HEADLESS === '1',
   closeBrowser: truthy(cli.close),
   assumeYes: truthy(cli.yes),
+
+  /* which browser + which of YOUR profiles to drive */
+  browserChoice: String(cli.browser || process.env.JUP_BROWSER || localCfg.browser || 'auto').toLowerCase(),
+  profileChoice: String(cli.profile || process.env.JUP_CHROME_PROFILE || localCfg.profile || 'auto'),
+  userDataOverride: String(cli['user-data'] || process.env.JUP_USER_DATA || localCfg.userData || ''),
+  allowClosingBrowser: !truthy(cli['no-close-chrome']),
+
   waitForWalletUiMs: toInt(cli.waitmin, 10) * 60_000,
-  profileDir: join(HERE, '.chrome-profile'),
+  profileDir: join(HERE, '.chrome-profile'), // only used by --profile=fresh
 };
+
+/* Set once the user's real profile is launched, so an error message can still
+ * remind them that a debugging-enabled browser window is left open. */
+let personalBrowserOpen = false;
 
 /* Strings that mean "the wallet screen is ready". If Jupiter renames the
  * buttons, add the new wording here (or pass it in via --ready-hint). */
@@ -115,7 +141,52 @@ function modeLabel() {
 
 const log = (msg) => console.log(msg);
 const warn = (msg) => console.log('  ! ' + msg);
-const fail = (msg) => { console.error('\n  X ' + msg + '\n'); process.exit(1); };
+const fail = (msg) => {
+  console.error('\n  X ' + msg + '\n');
+  if (personalBrowserOpen) {
+    console.error('  ! Your browser is still open with a debugging port — close that window when you are done.\n');
+  }
+  process.exit(1);
+};
+
+function readJsonFile(path) {
+  try {
+    if (!existsSync(path)) return null;
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/** One-off terminal question (readline is opened and closed per use). */
+async function askLine(question) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await rl.question(question);
+  } finally {
+    rl.close();
+  }
+}
+
+/** Run a command without showing its output; resolves true on exit code 0. */
+function runCommand(file, args) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(file, args, { stdio: 'ignore', windowsHide: true });
+    } catch {
+      resolve(false);
+      return;
+    }
+    child.on('error', () => resolve(false));
+    child.on('close', (code) => resolve(code === 0));
+  });
+}
+
+/** Command lines can quote the path, so compare without quotes. */
+function normalizeCmdLine(text) {
+  return String(text || '').toLowerCase().replace(/"/g, '');
+}
 
 /* ========================================================================== */
 /* 3. Ask the questions in the TERMINAL (instead of page prompt())            */
@@ -198,26 +269,262 @@ function pageConfig() {
 }
 
 /* ========================================================================== */
-/* 4. Find and launch a browser with remote debugging                          */
+/* 4. Browser + profile selection (drives YOUR real browser profile)          */
 /* ========================================================================== */
 
 const PROGRAM_FILES = process.env['ProgramFiles'] || 'C:\\Program Files';
 const PROGRAM_FILES_X86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
 const LOCAL_APP_DATA = process.env.LOCALAPPDATA || '';
 
-function findBrowser() {
-  const candidates = [
-    process.env.CHROME_PATH,
-    join(PROGRAM_FILES, 'Google', 'Chrome', 'Application', 'chrome.exe'),
-    join(PROGRAM_FILES_X86, 'Google', 'Chrome', 'Application', 'chrome.exe'),
-    LOCAL_APP_DATA && join(LOCAL_APP_DATA, 'Google', 'Chrome', 'Application', 'chrome.exe'),
-    join(PROGRAM_FILES_X86, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-    join(PROGRAM_FILES, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium',
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  ].filter(Boolean);
-  return candidates.find((candidate) => existsSync(candidate));
+const CHROMIUM_BROWSERS = [
+  {
+    key: 'chrome',
+    name: 'Google Chrome',
+    image: 'chrome.exe',
+    userData: LOCAL_APP_DATA ? join(LOCAL_APP_DATA, 'Google', 'Chrome', 'User Data') : '',
+    exe: [
+      process.env.CHROME_PATH,
+      join(PROGRAM_FILES, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      join(PROGRAM_FILES_X86, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      LOCAL_APP_DATA && join(LOCAL_APP_DATA, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium',
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ].filter(Boolean),
+  },
+  {
+    key: 'edge',
+    name: 'Microsoft Edge',
+    image: 'msedge.exe',
+    userData: LOCAL_APP_DATA ? join(LOCAL_APP_DATA, 'Microsoft', 'Edge', 'User Data') : '',
+    exe: [
+      process.env.EDGE_PATH,
+      join(PROGRAM_FILES_X86, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      join(PROGRAM_FILES, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      '/usr/bin/microsoft-edge',
+    ].filter(Boolean),
+  },
+];
+
+function resolveBrowser() {
+  const installed = CHROMIUM_BROWSERS
+    .map((browser) => ({ ...browser, exePath: browser.exe.find((candidate) => existsSync(candidate)) }))
+    .filter((browser) => browser.exePath);
+
+  if (!installed.length) fail('No Chrome/Edge found. Set CHROME_PATH to your browser executable.');
+
+  if (cfg.browserChoice !== 'auto') {
+    const wanted = installed.find((browser) => browser.key === cfg.browserChoice);
+    if (!wanted) fail('--browser=' + cfg.browserChoice + ' is not installed here.');
+    return wanted;
+  }
+  return installed.find((browser) => browser.key === 'chrome') || installed[0];
+}
+
+function readLocalState(userData) {
+  return readJsonFile(join(userData, 'Local State')) || {};
+}
+
+function profileCache(userData) {
+  const localState = readLocalState(userData);
+  return (localState.profile || {}).info_cache || {};
+}
+
+function profileSummary(userData, dirName) {
+  const info = profileCache(userData)[dirName] || {};
+  const bits = [];
+  if (info.name) bits.push(info.name);
+  const email = info.user_name || info.gaia_name;
+  if (email) bits.push(email);
+  return bits.join(' · ');
+}
+
+/** "Profile 14", "Syed", an email, or "auto" (last used profile) -> folder. */
+function resolveProfileDir(userData, wanted) {
+  const localState = readLocalState(userData);
+  const cache = profileCache(userData);
+  const dirs = Object.keys(cache).filter((dir) => existsSync(join(userData, dir)));
+  if (!dirs.length) return 'Default';
+
+  const text = String(wanted || 'auto').trim();
+  const lower = text.toLowerCase();
+  if (!text || lower === 'auto') {
+    const last = (localState.profile || {}).last_used;
+    if (last && dirs.includes(last)) return last;
+    return dirs.includes('Default') ? 'Default' : dirs[0];
+  }
+
+  const exact = dirs.find((dir) => dir.toLowerCase() === lower);
+  if (exact) return exact;
+
+  const equals = (value) => String(value || '').toLowerCase() === lower;
+  const byField = dirs.find((dir) => {
+    const info = cache[dir] || {};
+    return [info.name, info.gaia_name, info.user_name, info.gaia_given_name].some(equals);
+  });
+  if (byField) return byField;
+
+  const partial = dirs.find((dir) => {
+    const info = cache[dir] || {};
+    return [info.name, info.user_name].some((value) => value && String(value).toLowerCase().includes(lower));
+  });
+  if (partial) return partial;
+
+  const options = dirs
+    .map((dir) => dir + (profileSummary(userData, dir) ? '  (' + profileSummary(userData, dir) + ')' : ''))
+    .join('\n      ');
+  return fail('No browser profile matches "' + text + '".\n    Available profiles:\n      ' + options);
+}
+
+/** Decide between a real profile on disk and the isolated automation profile. */
+function resolveTargetProfile(browser) {
+  if (String(cfg.profileChoice).toLowerCase() === 'fresh' || truthy(cli['fresh-profile'])) {
+    return {
+      fresh: true,
+      userData: cfg.profileDir,
+      profileDir: null,
+      label: 'separate automation profile (.chrome-profile/)',
+    };
+  }
+
+  const userData = cfg.userDataOverride || browser.userData;
+  if (!userData || !existsSync(userData)) {
+    fail('Browser profile folder not found: ' + (userData || '(none)') +
+      '\n    Use --profile=fresh to use the separate automation profile instead.');
+  }
+
+  const profileDir = resolveProfileDir(userData, cfg.profileChoice);
+  const summary = profileSummary(userData, profileDir);
+  return {
+    fresh: false,
+    userData,
+    profileDir,
+    label: profileDir + (summary ? ' — ' + summary : ''),
+  };
+}
+
+/* --- closing a browser that is already running ---------------------------- */
+
+function runPowerShell(script) {
+  if (process.platform !== 'win32') return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let out = '';
+    let child;
+    try {
+      child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true });
+    } catch {
+      resolve(null);
+      return;
+    }
+    child.stdout.on('data', (chunk) => { out += chunk; });
+    child.on('error', () => resolve(null));
+    child.on('close', () => resolve(out));
+  });
+}
+
+/** ProcessId + CommandLine for the browser, or null if we cannot ask. */
+async function listBrowserProcesses(browser) {
+  if (process.platform !== 'win32') return null;
+  const script = `$p = Get-CimInstance Win32_Process -Filter "Name='${browser.image}'" | Select-Object ProcessId,CommandLine; if ($p) { $p | ConvertTo-Json -Compress }`;
+  const out = await runPowerShell(script);
+  if (!out) return [];
+  const text = out.trim();
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return [];
+  }
+}
+
+async function countProcessesByImage(browser) {
+  if (process.platform !== 'win32') return 0;
+  return new Promise((resolve) => {
+    let out = '';
+    let child;
+    try {
+      child = spawn('tasklist', ['/FI', 'IMAGENAME eq ' + browser.image, '/NH'], { windowsHide: true });
+    } catch {
+      resolve(0);
+      return;
+    }
+    child.stdout.on('data', (chunk) => { out += chunk; });
+    child.on('error', () => resolve(0));
+    child.on('close', () => {
+      const escaped = browser.image.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      resolve((out.match(new RegExp(escaped, 'gi')) || []).length);
+    });
+  });
+}
+
+/**
+ * A browser UI cannot gain a debugging port after it started, so a personal
+ * profile means closing the browser once and letting the launcher reopen it.
+ * Only when the target is the browser's DEFAULT user-data-dir is it safe to
+ * close every instance (normal launches carry no --user-data-dir flag).
+ * With --user-data=<other folder> only instances opened on that folder close.
+ */
+async function stopBrowserIfRunning(browser, target) {
+  const processes = await listBrowserProcesses(browser);
+  const personal = target.fresh === false;
+  const matchesTarget = (proc) => normalizeCmdLine(proc.CommandLine)
+    .includes('--user-data-dir=' + normalizeCmdLine(target.userData));
+  const killAllInstances = personal && normalizeCmdLine(target.userData) === normalizeCmdLine(browser.userData);
+
+  let relevant = [];
+  if (processes !== null) {
+    relevant = killAllInstances ? processes : processes.filter(matchesTarget);
+  }
+
+  let running = relevant.length;
+  if (processes === null) {
+    if (!killAllInstances) {
+      warn('Could not inspect running ' + browser.name + ' processes; skipping the close step.');
+      return;
+    }
+    running = await countProcessesByImage(browser);
+  }
+  if (!running) return;
+
+  log('');
+  if (killAllInstances) {
+    log('  ' + browser.name + ' is running. It must be fully closed once so the');
+    log('  automation can reopen it with a debugging port on YOUR profile.');
+    log('  ' + browser.name + ' restores your tabs when it reopens.');
+  } else if (personal) {
+    log('  ' + browser.name + ' is still running on that profile folder; closing just that instance.');
+  } else {
+    log('  An old automation ' + browser.name + ' is still running with the separate profile.');
+  }
+
+  if (!cfg.allowClosingBrowser) {
+    fail('Close ' + browser.name + ' completely, then run this again (or drop --no-close-chrome).');
+  }
+  if (process.stdin.isTTY && !cfg.assumeYes) {
+    const answer = (await askLine('  Close ' + browser.name + ' now? [Y/n] ')).trim().toLowerCase();
+    if (answer && answer !== 'y' && answer !== 'yes') {
+      fail('Cancelled. Close ' + browser.name + ' yourself, then run this again.');
+    }
+  }
+
+  if (killAllInstances) {
+    await runCommand('taskkill', ['/IM', browser.image, '/T', '/F']);
+  } else {
+    for (const proc of relevant) {
+      if (proc && proc.ProcessId) await runCommand('taskkill', ['/PID', String(proc.ProcessId), '/T', '/F']);
+    }
+  }
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const left = await listBrowserProcesses(browser);
+    if (left === null) break;
+    const remaining = killAllInstances ? left.length : left.filter(matchesTarget).length;
+    if (!remaining) break;
+    await sleep(250);
+  }
+  await sleep(600);
+  log('  ' + (killAllInstances ? browser.name : 'That browser instance') + ' closed.');
 }
 
 const debugBase = () => `http://127.0.0.1:${cfg.port}`;
@@ -396,34 +703,50 @@ async function main() {
   }
   validate();
 
-  /* --- browser ---------------------------------------------------------- */
-  const browser = findBrowser();
-  if (!browser) fail('No Chrome/Edge found. Set CHROME_PATH to your browser executable.');
+  /* --- browser + your profile -------------------------------------------- */
+  const browser = resolveBrowser();
+  const profile = resolveTargetProfile(browser);
+
+  log('');
+  log('  Browser:    ' + browser.name + '  (' + browser.exePath + ')');
+  log('  Profile:    ' + profile.label);
+  if (!profile.fresh) log('              ' + profile.userData);
 
   let spawned = null;
   if (await cdpIsUp()) {
-    log('\n  Reusing the automation browser already listening on port ' + cfg.port + '.');
+    log('\n  Reusing the browser already listening on port ' + cfg.port + '.');
   } else {
+    await stopBrowserIfRunning(browser, profile);
+
     if (cfg.headless) {
       log('\n  Starting a headless browser on port ' + cfg.port + '.');
     } else {
-      log('\n  Opening ' + browser.split(/[\\/]/).pop() + ' with its own profile (first run: log in there).');
+      log('\n  Opening ' + browser.name + ' with that profile ...');
     }
-    mkdirSync(cfg.profileDir, { recursive: true });
+
+    mkdirSync(profile.userData, { recursive: true });
     const args = [
       '--remote-debugging-port=' + cfg.port,
-      '--user-data-dir=' + cfg.profileDir,
+      '--user-data-dir=' + profile.userData,
       '--no-first-run',
       '--no-default-browser-check',
     ];
+    if (profile.profileDir) args.push('--profile-directory=' + profile.profileDir);
     if (cfg.headless) args.push('--headless=new', '--disable-gpu');
     args.push(cfg.url);
 
-    spawned = spawn(browser, args, { detached: true, stdio: 'ignore' });
+    spawned = spawn(browser.exePath, args, { detached: true, stdio: 'ignore' });
     spawned.unref?.();
+    if (!profile.fresh) personalBrowserOpen = true;
 
-    if (!(await waitForCdp(45_000))) {
-      fail('The browser did not expose its DevTools port. Close all Chrome windows and try again.');
+    if (!(await waitForCdp(cfg.headless ? 45_000 : 60_000))) {
+      fail('The browser did not expose its DevTools port.\n' +
+        '    Close every ' + browser.name + ' window (including background apps) and try again,\n' +
+        '    or pass --port=9223. If this keeps happening, run with --profile=fresh.');
+    }
+
+    if (!profile.fresh) {
+      log('  ' + browser.name + ' reopened with your profile.');
     }
   }
 
@@ -446,7 +769,7 @@ async function main() {
     log('');
     log('  Waiting for the wallet screen ... (Ctrl+C to cancel)');
     log('  In the browser window: log in and open the page with "Create a new wallet".');
-    if (!cfg.headless) log('  Your login is remembered in .chrome-profile/ for next time.');
+    if (!cfg.headless) log('  This is your own browser profile, so the login is remembered.');
     log('');
 
     const deadline = Date.now() + cfg.waitForWalletUiMs;
@@ -540,16 +863,19 @@ async function main() {
     log('  Each wallet has its own seed phrase — back them up from the browser UI.');
   }
 
+  if (!profile.fresh) {
+    log('  This window is YOUR ' + browser.name + ' profile, opened with a debugging port.');
+  }
   if (cfg.closeBrowser) {
     if (spawned) {
       killTree(spawned.pid);
-      log('  Browser closed.');
+      log('  Browser closed. Start ' + browser.name + ' normally again when you need it.');
     } else {
       log('  Browser left open — it was already running before this launcher started.');
     }
   } else {
-    log('  Browser left open. Close that window yourself when you are done.');
-    log('  (It runs with a local DevTools port, so do not leave it open forever.)');
+    log('  Browser left open. Back up the seed phrase, then close that window — the');
+    log('  debugging port disappears with it and ' + browser.name + ' starts normally next time.');
   }
 }
 
@@ -575,6 +901,9 @@ function killTree(pid) {
 
 process.on('SIGINT', () => {
   console.log('\n  Cancelled. The browser window (if it was opened) is left as-is.');
+  if (personalBrowserOpen) {
+    console.log('  It is running with a debugging port — close that window when you are done.');
+  }
   process.exit(130);
 });
 
