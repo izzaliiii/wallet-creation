@@ -1,6 +1,6 @@
 # Jupiter Wallet Automation
 
-Browser-console automation for bulk-creating wallets in the Jupiter (Solana DEX) web UI.
+Chrome-extension automation for creating wallets in the Jupiter Wallet extension UI.
 
 This repo contains **two** versions of the script — the original one, and a hardened
 rewrite that is slower to break and has a real headless-browser test. It also has a
@@ -29,12 +29,16 @@ rewrite that is slower to break and has a real headless-browser test. It also ha
 No copy-paste. A Node launcher opens Chrome, waits until you are on the wallet screen,
 injects the automation into the page, and mirrors all progress into the VS Code terminal.
 
-1. Open **this folder** in VS Code.
-2. Press `Ctrl+Shift+B` → **`Jupiter: run in browser (VS Code)`**
+1. Install and enable the Jupiter Wallet extension in the Chrome profile you intend to use.
+2. Open **this folder** in VS Code.
+3. Press `Ctrl+Shift+B` → **`Jupiter: run in browser (VS Code)`**
    (or run `npm start`, or `node run-wallet-creation.js` in the terminal).
-3. Answer the five questions in the terminal (press Enter for the displayed default):
-   page URL, base name, how many, start number, seed mode.
-4. The launcher uses **your own Chrome profile** — same logins, extensions, bookmarks and
+4. Answer the five questions in the terminal (press Enter for the displayed default):
+   extension URL, base name, how many, start number, seed mode. The default URL opens
+   `chrome-extension://iledlaeogohbilgbfhmbgkgmpplbfboh/popup.html#/onboard`.
+5. Complete the extension's first-time onboarding manually if it appears. Keep the wallet
+   extension unlocked and navigate to its wallet list until **“Create a new wallet”** is visible.
+6. The launcher uses **your own Chrome profile** — same logins, extensions, bookmarks and
    history. Chrome is closed once at startup and reopened with a debugging port
    (Chrome restores your tabs). Nobody has to log in again.
 5. Go to the wallet screen with **“Create a new wallet”**. The launcher detects it and
